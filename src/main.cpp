@@ -1,7 +1,5 @@
-// Acorn System 3 (6502) sobre TTGO VGA32 con FabGL.
-//
-// ESTADO: compilado y probado en la placa por el usuario: arranque del DOS, disco en SD, Invaders en 80
-// columnas, vuelta al DOS con ESC y Bloq Mayus por defecto.
+// Acorn System 3 / System 4 (6502) sobre TTGO VGA32 con FabGL.
+// La configuración física se selecciona en Model.h mediante el entorno de PlatformIO.
 //
 // Reparto: tarea de emulacion en el nucleo 0 (sincronizada con esp_timer a 1 MHz),
 // Arduino loop() en el nucleo 1 (teclado, dibujo, menu). Un mutex protege el
@@ -24,7 +22,7 @@
 #include "embedded_roms.h"
 
 static const char* kSdMount = "/SD";
-static const char* kDiskDir = "/SD/system3";       // imagenes .ssd / .img (102.400 o 89.600 bytes)
+static const char* kDiskDir = "/SD/system3";       // imagenes .ssd / .img (System 3: 102.400 B; System 4: 204.800 B max.)
 
 static fabgl::VGA8Controller gDisplay;             // 8 colores, pines por defecto de FabGL (= TTGO VGA32)
 static fabgl::PS2Controller gPs2;
@@ -52,7 +50,10 @@ static void osd(const std::string& s, uint32_t ms = 4000) { gOsd = s; gOsdUntil 
 
 // ---- Maquina ----------------------------------------------------------------
 static void loadRoms() {
-    gM->loadRom(gDosVariant ? kRomDos40b : kRomDos40a, 4096);   // BASIC no es ROM en los Systems 3/4: se carga desde disco
+    gM->loadRom(gDosVariant ? kRomDos40b : kRomDos40a, 4096);
+#if S3_HAS_BASIC_ROM
+    gM->loadBasicRom(kRomSystemBasic, 4096);                   // System 3 minimo: BASIC ROM en C000-CFFF
+#endif
 }
 
 static void resetMachine(bool cold) {
@@ -353,7 +354,7 @@ void setup() {
     // SD de la TTGO VGA32: MISO 2, MOSI 12, CLK 14, CS 13.
     gSdOk = fabgl::FileBrowser::mountSDCard(false, kSdMount, 4, 16 * 1024, 2, 12, 14, 13);
 
-    gM = new System3Machine(16);
+    gM = new System3Machine(S3_RAM_KB);
     loadRoms();
     gM->reset(true);
 

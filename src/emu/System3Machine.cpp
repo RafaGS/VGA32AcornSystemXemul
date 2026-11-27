@@ -13,11 +13,13 @@ static void fillPowerOn(uint8_t* p, size_t n, uint32_t seed) {
 
 System3Machine::System3Machine(unsigned ramKB)
     : ramKB_(ramKB == 8 ? 8 : 16), active80_(false), portKey_(0xFF), portKeyHold_(0), strobeAge_(0),
-      ram_((size_t)(kExtras ? 48 : (ramKB == 8 ? 8 : 16)) * 1024, 0), loaded_(false), drive_(), drive1_(),
+      ram_((size_t)(kExtras ? 48 : (ramKB == 8 ? 8 : 16)) * 1024, 0), loaded_(false), basicLoaded_(false),
+      drive_(S3_DRIVE_TRACKS), drive1_(S3_DRIVE_TRACKS),
       fdc_(drive_, this, kDrives >= 2 ? &drive1_ : 0),
       cpu_(*this), ins_(*this), timer_(this), kh_(0), kc_(0), kbdData_(0), kbdStrobe_(false),
       kbdGap_(0), nmis_(0), lastCycles_(0) {
     memset(rom_, 0, sizeof rom_);
+    memset(basicRom_, 0, sizeof basicRom_);
     reset(true);
 }
 
@@ -55,6 +57,22 @@ bool System3Machine::loadRomFile(const char* path) {
     const size_t n = fread(b, 1, sizeof b, f);
     fclose(f);
     return loadRom(b, n);
+}
+
+bool System3Machine::loadBasicRom(const uint8_t* d, size_t n) {
+    if (n != kRomSize) return false;
+    memcpy(basicRom_, d, n);
+    basicLoaded_ = true;
+    return true;
+}
+
+bool System3Machine::loadBasicRomFile(const char* path) {
+    FILE* f = fopen(path, "rb");
+    if (!f) return false;
+    uint8_t b[kRomSize + 1];
+    const size_t n = fread(b, 1, sizeof b, f);
+    fclose(f);
+    return loadBasicRom(b, n);
 }
 
 bool System3Machine::ramMapped(uint16_t a) const {
@@ -96,6 +114,7 @@ uint8_t System3Machine::rd(uint16_t a) {
     const uint8_t hi = (uint8_t)(a >> 8);
     if (hi < 0x08) return mem_[a];                       // RAM 0000-03FF y RAM de video 0400-07FF
     if (a >= kDosBase) return rom_[a - kDosBase];
+    if (basicLoaded_ && a >= kBasicBase && a < (uint16_t)(kBasicBase + kRomSize)) return basicRom_[a - kBasicBase];
     if (ramMapped(a)) return ram_[ramIndex(a)];
     if (kExtras) {
         if (a >= 0x1000 && a < 0x1800) return vram80_[a - 0x1000];
@@ -127,6 +146,7 @@ void System3Machine::wr(uint16_t a, uint8_t v) {
     const uint8_t hi = (uint8_t)(a >> 8);
     if (hi < 0x08) { mem_[a] = v; return; }
     if (a >= kDosBase) return;                           // ROM: escritura ignorada
+    if (basicLoaded_ && a >= kBasicBase && a < (uint16_t)(kBasicBase + kRomSize)) return; // BASIC ROM: solo lectura
     if (ramMapped(a)) { ram_[ramIndex(a)] = v; return; }
     if (kExtras) {
         if (a >= 0x1000 && a < 0x1800) { vram80_[a - 0x1000] = v; return; }

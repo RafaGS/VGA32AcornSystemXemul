@@ -14,21 +14,21 @@
 // Acorn System 3 / System 4 (6502; el modelo se elige en compilacion, ver Model.h): CPU, mapa de memoria, ROM, perifericos y
 // temporizacion. Sin dependencias de la plataforma: lo usan el firmware de la TTGO VGA32 (src/main.cpp) y las pruebas del PC.
 //
-// Mapa de los Systems 3 y 4, segun las tarjetas de la definicion del emulador de referencia (elaverick/SystemEmulator) y
-// confirmado al ejecutar la ROM del DOS:
+// Mapa base de los Systems 3 y 4:
 //   0000-03FF  RAM 1K (tarjeta de CPU 200,000)
 //   0400-07FF  RAM de video de 40 columnas (tarjeta VDU 200,002)       0800-08FF  6845 de 40 columnas (a&1: direccion/dato)
 //   0A00-0BFF  Intel 8271 (+0 estado/orden, +1 resultado/parametro, +2 reset, +4 dato; tarjeta 200,004)
 //   0E00-0EFF  INS8154 de la tarjeta de CPU, repetido hasta 0FFF: con A7=0 son sus registros de E/S (a&$7F; teclado en el
 //              puerto B, $0E21) y con A7=1 sus 128 bytes de RAM
-//   2000-3FFF  RAM 8K      C000-DFFF  RAM 8K (solo con 16 KB; el BASIC se carga desde disco)      F000-FFFF  Acorn DOS (ROM)
+//   2000-3FFF  RAM 8K      C000-CFFF  BASIC ROM 4K (perfil minimo System 3) o RAM (System 4 ampliado)
+//   C000-DFFF  RAM 8K adicional en el perfil System 4      F000-FFFF  Acorn DOS (ROM)
 //   Todo lo demas esta sin decodificar: el bus flota a nivel bajo y se lee $00; las escrituras se ignoran.
 // Con -DS3_SYSTEM5_EXTRAS (NO autentico) se anaden las tarjetas del System 5: VIA 6522 en $0E00-$0E1F (con el INS8154 solo en
 // $0E20-$0E7F), RAM de video de 80 columnas en $1000-$17FF, su 6845 en $1840-$1841 y 48 KB de DRAM contiguos en $2000-$DFFF.
 // La ROM del DOS se carga desde fichero o memoria; si falta, el vector de reset lee $0000 y la maquina no arranca.
 class System3Machine : private Ins8154::Pins, private Intel8271::Host, private Via6522::Host {
 public:
-    static const uint16_t kDosBase = 0xF000, kRomSize = 0x1000;
+    static const uint16_t kDosBase = 0xF000, kBasicBase = 0xC000, kRomSize = 0x1000;
     static const uint8_t kKeyQueueSize = 16;
     static const bool kExtras = S3_EXTRAS != 0;
 
@@ -44,6 +44,9 @@ public:
     bool loadRom(const uint8_t* data, size_t n);   // ROM del DOS: exige 4096 bytes
     bool loadRomFile(const char* path);
     bool romLoaded() const { return loaded_; }
+    bool loadBasicRom(const uint8_t* data, size_t n); // ROM BASIC del System 3: 4096 bytes en C000-CFFF
+    bool loadBasicRomFile(const char* path);
+    bool basicRomLoaded() const { return basicLoaded_; }
 
     // Unidades de disquete: 1 en el System 3 y 2 en el System 4 (seleccion en compilacion, Model.h). drive(1) existe
     // siempre como objeto, pero solo esta conectada al 8271 si kDrives >= 2.
@@ -108,6 +111,8 @@ private:
     std::vector<uint8_t> ram_;               // 2000-3FFF y, con 16 KB, C000-DFFF (en ese orden)
     uint8_t rom_[kRomSize];
     bool loaded_;
+    uint8_t basicRom_[kRomSize];
+    bool basicLoaded_;
     FloppyDrive drive_, drive1_;
     Intel8271 fdc_;
     Cpu cpu_;

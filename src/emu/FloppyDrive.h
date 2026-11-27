@@ -7,9 +7,9 @@
 // Unidad de disquete de 5 1/4" (una cara) tal como la ve la controladora 8271.
 //
 // Modelo (alineado con el emulador de referencia y con la descripcion del DOS):
-//  * La unidad FISICA tiene 80 pistas (la cabeza se mueve entre 0 y 79); la IMAGEN tiene entre 1 y 80 pistas segun
-//    su tamano (multiplo de 2.560 bytes: 40 pistas = 102.400, 35 = 89.600, 80 = 204.800). Leer una pista que la imagen
-//    no tiene da SECTOR NOT FOUND, y FORMAT de una pista posterior al final hace crecer la imagen.
+//  * La unidad puede configurarse con 40 u 80 pistas fisicas. La imagen tiene entre 1 y ese maximo de pistas segun
+//    su tamano (10 sectores x 256 bytes: 40 pistas = 102.400 bytes). Leer una pista que la imagen no tiene da
+//    SECTOR NOT FOUND, y FORMAT de una pista posterior al final hace crecer la imagen.
 //  * El disco gira siempre a 300 RPM mientras haya soporte (el motor no se modela: READY = hay disco). Una vuelta =
 //    200 ms = 200.000 ciclos de 1 MHz.
 //  * Cada pista tiene 'sectorsPerTrack' huecos de sector de la misma duracion; el sector logico s de la pista t ocupa
@@ -25,17 +25,18 @@ public:
     static const uint32_t kRevolutionCycles = 200000;   // 300 RPM a 1 MHz
     static const uint8_t kPhysicalTracks = 80;
 
-    FloppyDrive();
+    explicit FloppyDrive(uint8_t physicalTracks = kPhysicalTracks);
 
     // Geometria de pista (solo cambia sin disco insertado). Las pistas de la imagen salen de su tamano al insertar.
     bool setGeometry(uint8_t tracks, uint8_t sectorsPerTrack, uint16_t sectorSize = 256);
     uint8_t tracks() const { return tracks_; }               // pistas de la IMAGEN
+    uint8_t physicalTracks() const { return physicalTracks_; }
     uint8_t sectorsPerTrack() const { return spt_; }
     uint16_t sectorSize() const { return ssize_; }
     uint32_t imageBytes() const { return (uint32_t)tracks_ * spt_ * ssize_; }
     void setSkew(uint8_t s) { skew_ = s; }
 
-    // Soporte. El tamano debe ser multiplo de una pista y de 1 a 80 pistas (si no, INSERT_BAD_SIZE).
+    // Soporte. El tamano debe ser multiplo de una pista y tener de 1 a physicalTracks_ pistas (si no, INSERT_BAD_SIZE).
     // 'formatted' = false deja todas las pistas sin formato.
     InsertResult insert(DiskImage* img, bool writeProtect = false, bool formatted = true);
     InsertResult insertAuto(DiskImage* img, bool writeProtect = false) { return insert(img, writeProtect, true); }
@@ -81,7 +82,7 @@ private:
     uint32_t offset(uint8_t track, uint8_t sector) const { return ((uint32_t)track * spt_ + sector) * ssize_; }
 
     DiskImage* img_;
-    uint8_t tracks_, spt_, skew_, head_;
+    uint8_t tracks_, physicalTracks_, spt_, skew_, head_;
     uint16_t ssize_;
     bool wp_, dirty_;
     uint64_t unfmt_[2];                    // bit a 1 = pista sin formato (0-127)

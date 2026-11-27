@@ -2,12 +2,13 @@
 
 #include <string.h>
 
-FloppyDrive::FloppyDrive()
-    : img_(0), tracks_(40), spt_(10), skew_(0), head_(0), ssize_(256), wp_(false), dirty_(false),
+FloppyDrive::FloppyDrive(uint8_t physicalTracks)
+    : img_(0), tracks_(40), physicalTracks_(physicalTracks > kPhysicalTracks ? kPhysicalTracks : physicalTracks),
+      spt_(10), skew_(0), head_(0), ssize_(256), wp_(false), dirty_(false),
       fault_(FAULT_NONE), ftrack_(0), fsector_(0) { unfmt_[0] = unfmt_[1] = 0; }
 
 bool FloppyDrive::setGeometry(uint8_t tracks, uint8_t spt, uint16_t ssize) {
-    if (img_ || tracks == 0 || tracks > kPhysicalTracks || spt == 0 || ssize != 256) return false;   // el 8271 de esta fase usa N=1
+    if (img_ || tracks == 0 || tracks > physicalTracks_ || spt == 0 || ssize != 256) return false;   // el 8271 de esta fase usa N=1
     tracks_ = tracks; spt_ = spt; ssize_ = ssize;
     return true;
 }
@@ -16,7 +17,7 @@ FloppyDrive::InsertResult FloppyDrive::insert(DiskImage* img, bool wp, bool form
     if (!img) return INSERT_BAD_SIZE;
     const uint32_t track = (uint32_t)spt_ * ssize_;
     const uint32_t sz = img->size();
-    if (sz == 0 || sz % track != 0 || sz / track > kPhysicalTracks) return INSERT_BAD_SIZE;
+    if (sz == 0 || sz % track != 0 || sz / track > physicalTracks_) return INSERT_BAD_SIZE;
     sync();
     tracks_ = (uint8_t)(sz / track);
     img_ = img;
@@ -29,7 +30,7 @@ FloppyDrive::InsertResult FloppyDrive::insert(DiskImage* img, bool wp, bool form
 
 bool FloppyDrive::step(bool inward) {
     if (inward) {
-        if (head_ + 1 >= kPhysicalTracks) return false;
+        if (head_ + 1 >= physicalTracks_) return false;
         head_++;
     } else {
         if (head_ == 0) return false;
