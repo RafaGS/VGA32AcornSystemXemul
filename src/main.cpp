@@ -1,11 +1,12 @@
-// Acorn System 3 / System 4 (6502) sobre TTGO VGA32 con FabGL.
-// La configuración física se selecciona en Model.h mediante el entorno de PlatformIO.
+// Acorn System 3 / System 4 (6502) sobre ESP32 con FabGL.
+// El modelo emulado se selecciona en Model.h mediante el entorno de PlatformIO.
 //
 // Reparto: tarea de emulacion en el nucleo 0 (sincronizada con esp_timer a 1 MHz),
 // Arduino loop() en el nucleo 1 (teclado, dibujo, menu). Un mutex protege el
 // acceso a la maquina entre ambos.
 #include <Arduino.h>
 #include <dirent.h>
+#include <esp_system.h>
 #include <esp_timer.h>
 #include <stdio.h>
 #include <string.h>
@@ -16,6 +17,7 @@
 
 #include "fabgl.h"
 
+#include "BoardDetection.h"
 #include "DiskImage.h"
 #include "System3Machine.h"
 #include "Teletext.h"
@@ -38,6 +40,10 @@ static std::vector<std::string> gImages;
 static int gImgIdx[System3Machine::kDrives];                    // indice de la imagen insertada en cada unidad (-1: ninguna)
 static std::string gOsd;
 static uint32_t gOsdUntil = 0;
+
+#if defined(S3_BOARD_TTGO) && defined(S3_BOARD_OLIMEX)
+#error "Selecciona solo una placa: S3_BOARD_TTGO o S3_BOARD_OLIMEX"
+#endif
 
 // Desplazamiento vertical de la imagen (px). Ajustable en vivo con F6 (subir) / F7 (bajar) si el monitor
 // recorta la parte de abajo o de arriba; valor por defecto con -DS3_Y_OFFSET=n.
@@ -341,6 +347,21 @@ void setup() {
     Serial.begin(115200);
     gLock = xSemaphoreCreateMutex();
 
+    esp_chip_info_t chipInfo;
+    esp_chip_info(&chipInfo);
+#if defined(S3_BOARD_TTGO)
+    const BoardType board = BoardType::TtgoVga32;
+    Serial.println("Placa configurada: TTGO VGA32");
+#elif defined(S3_BOARD_OLIMEX)
+    const BoardType board = BoardType::OlimexFabgl;
+    Serial.println("Placa configurada: Olimex ESP32-SBC-FabGL");
+#else
+    const BoardType board = boardFromChipRevision(chipInfo.model == CHIP_ESP32, chipInfo.revision);
+    Serial.printf("Revision del chip: %u; placa estimada: %s\n", (unsigned)chipInfo.revision,
+                  board == BoardType::TtgoVga32 ? "TTGO VGA32" :
+                  board == BoardType::OlimexFabgl ? "Olimex ESP32-SBC-FabGL" : "desconocida");
+#endif
+
     gPs2.begin(fabgl::PS2Preset::KeyboardPort0);       // teclado PS/2 en el puerto 0 de la TTGO
 #ifdef S3_KBD_LAYOUT
     gPs2.keyboard()->setLayout(&fabgl::S3_KBD_LAYOUT);
@@ -351,8 +372,13 @@ void setup() {
     gDisplay.setResolution(VGA_640x480_60Hz);
     gCanvas = new fabgl::Canvas(&gDisplay);
 
-    // SD de la TTGO VGA32: MISO 2, MOSI 12, CLK 14, CS 13.
-    gSdOk = fabgl::FileBrowser::mountSDCard(false, kSdMount, 4, 16 * 1024, 2, 12, 14, 13);
+    const int sdMiso = sdMisoPin(board);
+    if (sdMiso >= 0) {
+        gSdOk = fabgl::FileBrowser::mountSDCard(false, kSdMount, 4, 16 * 1024, sdMiso, 12, 14, 13);
+        if (!gSdOk) Serial.println("Error al montar la tarjeta SD");
+    } else {
+        Serial.println("Placa desconocida: SD desactivada; selecciona S3_BOARD_TTGO o S3_BOARD_OLIMEX");
+    }
 
     gM = new System3Machine(S3_RAM_KB);
     loadRoms();
@@ -364,7 +390,7 @@ void setup() {
         // unidad 0 = primera imagen; unidad 1 (System 4) = la segunda, si existe
         for (unsigned u = 0; u < System3Machine::kDrives && u < gImages.size(); u++) insertImage(u, (int)u);
     }
-    if (gImgIdx[0] < 0) osd(std::string(System3Machine::modelName()) + (gSdOk ? ": sin imagenes, F9 tras copiar .ssd a /system3" : ": sin SD, el DOS espera disco"));
+    if (gImgIdx[0] < 0) osd(std::string(System3Machine::modelName()) + (gSdOk ? ": sin imagenes, F9 tras copiar .ssd a /system3" : sdMiso < 0 ? ": placa desconocida, SD desactivada" : ": sin SD, el DOS espera disco"));
     else osd(std::string(System3Machine::modelName()) + " - " + unitTag(0) + gImages[gImgIdx[0]] + (System3Machine::kDrives > 1 && gImgIdx[1] >= 0 ? "  " + unitTag(1) + gImages[gImgIdx[1]] : ""), 5000);
 
     xTaskCreatePinnedToCore(emuTask, "emu", 8192, nullptr, 2, nullptr, 0);
